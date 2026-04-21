@@ -195,7 +195,7 @@
 <body>
 
 <div class="header">
-  <h1>出入金流量拓扑 · 动态可视化</h1>
+  <h1>🔄 出入金流量拓扑 · 动态可视化</h1>
   <div class="meta">
     <span>📊 数据来源：Dynatrace qlf23711</span>
     <span>⏱ 统计窗口：2026-03-23 19:12 ~ 19:13 CST（1分钟采样）</span>
@@ -285,7 +285,7 @@
     <text class="phase-label" x="40" y="800">阶段五 · 异步任务处理（入金+出金）</text>
 
     <rect class="phase-bg" x="20" y="990" width="1520" height="145" />
-    <text class="phase-label" x="40" y="1020">🔑 关键观察区</text>
+    <text class="phase-label" x="40" y="980">🔑 关键观察区</text>
 
     <g id="edges"></g>
     <g id="nodes"></g>
@@ -317,10 +317,9 @@
   <div class="insight-card">
     <h3>💡 治理建议</h3>
     <ul>
-      <li>入金链路优先保障：pcs-resource、channel-provider 接入 <strong>Sentinel 限流</strong></li>
+      <li>入金链路优先保障：service-pcs-cashier、channel-provider 接入 <strong>Sentinel 限流</strong></li>
       <li>出金链路独立隔离：避免入金洪峰挤压出金处理</li>
       <li>cashier → 6个下游设置 <strong>差异化超时</strong>（快的优先返回）</li>
-      <li>风控命中仅 <strong>2/m</strong>，需核对策略是否过松</li>
     </ul>
   </div>
   <div class="insight-card">
