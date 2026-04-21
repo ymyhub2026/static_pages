@@ -226,7 +226,7 @@
   </div>
   <div class="stat-card">
     <div class="label">最热服务</div>
-    <div class="value" style="font-size:16px">pcs-resource<span class="unit"> 35,265/m</span></div>
+    <div class="value" style="font-size:16px">channel-provider<span class="unit"> 11,188/m</span></div>
   </div>
 </div>
 
@@ -284,8 +284,8 @@
     <rect class="phase-bg" x="20" y="770" width="1520" height="200" />
     <text class="phase-label" x="40" y="800">阶段五 · 异步任务处理（入金+出金）</text>
 
-    <rect class="phase-bg" x="20" y="990" width="1520" height="145" />
-    <text class="phase-label" x="40" y="980">🔑 关键观察区</text>
+    <text class="phase-label" x="40" y="1010">🔑 关键观察区</text>
+    <rect class="phase-bg" x="20" y="1020" width="1520" height="145" />
 
     <g id="edges"></g>
     <g id="nodes"></g>
@@ -376,12 +376,12 @@ const nodes = [
   { id: 'STATS', label: '统计服务', type: 'down', x: 760, y: 882, w: 140, h: 42, tpm: '158/m' },
 
   // 关键观察区
-  { id: 'KEY1', label: '★ GW业务拆分: 入金72.3% 出金14.1% 内转5.0%', type: 'hot-note', x: 40, y: 1010, w: 420, h: 48 },
-  { id: 'KEY2', label: '★ 最热: pcs-resource 35,265/m', type: 'hot-note', x: 480, y: 1010, w: 300, h: 48 },
-  { id: 'KEY3', label: '★ 入口天花板: gateway 15,800/m', type: 'hot-note', x: 800, y: 1010, w: 320, h: 48 },
-  { id: 'KEY4', label: '★ 风控命中仅 2/m 需核查', type: 'hot-note', x: 1140, y: 1010, w: 320, h: 48 },
-  { id: 'KEY5', label: '★ 入金主导: 大行情入金可达 3-5x → 34,257~57,095/m', type: 'hot-note', x: 40, y: 1075, w: 700, h: 48 },
-  { id: 'KEY6', label: '★ 异步 Job × 2 通道: Kafka Lag 是关键信号', type: 'hot-note', x: 760, y: 1075, w: 700, h: 48 },
+  { id: 'KEY1', label: '★ GW业务拆分: 入金72.3% 出金14.1% 内转5.0%', type: 'hot-note', x: 40, y: 1040, w: 420, h: 48 },
+  { id: 'KEY2', label: '★ 最热: channel-provider 11,188/m', type: 'hot-note', x: 480, y: 1040, w: 300, h: 48 },
+  { id: 'KEY3', label: '★ 入口天花板: gateway 15,800/m', type: 'hot-note', x: 800, y: 1040, w: 320, h: 48 },
+  { id: 'KEY4', label: '★ 风控命中仅 2/m 需核查', type: 'hot-note', x: 1140, y: 1040, w: 320, h: 48 },
+  { id: 'KEY5', label: '★ 入金主导: 大行情入金可达 3-5x → 34,257~57,095/m', type: 'hot-note', x: 40, y: 1105, w: 700, h: 48 },
+  { id: 'KEY6', label: '★ 异步 Job × 2 通道: Kafka Lag 是关键信号', type: 'hot-note', x: 760, y: 1105, w: 700, h: 48 },
 ];
 
 // ====== 边定义 ======
