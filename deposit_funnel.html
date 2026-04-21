@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>入金流量漏斗 · 动态可视化</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #1a1f3a 0%, #0d1127 100%);
+    color: #e8ecf7;
+    min-height: 100vh;
+    padding: 20px;
+    overflow-x: auto;
+  }
+  .header {
+    max-width: 1600px; margin: 0 auto 20px;
+    padding: 20px 30px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    backdrop-filter: blur(10px);
+  }
+  .header h1 {
+    font-size: 26px; font-weight: 600;
+    background: linear-gradient(90deg, #60a5fa, #a78bfa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 8px;
+  }
+  .header .meta {
+    color: #94a3b8; font-size: 13px;
+    display: flex; gap: 20px; flex-wrap: wrap;
+  }
+  .header .meta span { display: inline-flex; align-items: center; gap: 6px; }
+
+  .stats-bar {
+    max-width: 1600px; margin: 0 auto 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .stat-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    padding: 14px 18px;
+    transition: transform 0.2s;
+  }
+  .stat-card:hover { transform: translateY(-2px); }
+  .stat-card .label { color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  .stat-card .value { font-size: 22px; font-weight: 700; margin-top: 4px; color: #fbbf24; }
+  .stat-card .unit { font-size: 12px; color: #94a3b8; margin-left: 4px; }
+
+  .controls {
+    max-width: 1600px; margin: 0 auto 20px;
+    display: flex; gap: 12px; align-items: center;
+  }
+  .btn {
+    background: rgba(96, 165, 250, 0.15);
+    border: 1px solid rgba(96, 165, 250, 0.4);
+    color: #60a5fa;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn:hover { background: rgba(96, 165, 250, 0.3); }
+  .btn.active { background: #60a5fa; color: #0d1127; }
+  .legend { display: flex; gap: 16px; margin-left: auto; font-size: 12px; color: #94a3b8; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 3px; }
+
+  .canvas-container {
+    max-width: 1600px; margin: 0 auto;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 30px;
+    position: relative;
+  }
+  svg { display: block; width: 100%; height: auto; }
+
+  .node-rect { stroke-width: 2; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3)); }
+  .node-label { fill: #fff; font-size: 12px; font-weight: 600; text-anchor: middle; pointer-events: none; }
+  .node-stat { fill: #fbbf24; font-size: 11px; text-anchor: middle; pointer-events: none; font-weight: 700; }
+  .node-substat { fill: #cbd5e1; font-size: 10px; text-anchor: middle; pointer-events: none; }
+
+  .phase-bg {
+    fill: rgba(255,255,255,0.02);
+    stroke: rgba(255,255,255,0.1);
+    stroke-width: 1;
+    stroke-dasharray: 6,4;
+    rx: 12;
+  }
+  .phase-label {
+    fill: #a78bfa; font-size: 14px; font-weight: 700; letter-spacing: 1px;
+  }
+
+  .edge { fill: none; stroke-opacity: 0.6; transition: all 0.3s; }
+  .edge:hover { stroke-opacity: 1; }
+  .dimmed { opacity: 0.12 !important; }
+  .highlight-node .node-rect { stroke-width: 3; filter: drop-shadow(0 0 14px #fbbf24); }
+  .upstream-node .node-rect { stroke: #60a5fa !important; stroke-width: 2.5; filter: drop-shadow(0 0 8px rgba(96,165,250,0.7)); }
+  .downstream-node .node-rect { stroke: #34d399 !important; stroke-width: 2.5; filter: drop-shadow(0 0 8px rgba(52,211,153,0.7)); }
+  .upstream-edge { stroke: #60a5fa !important; stroke-opacity: 1 !important; }
+  .downstream-edge { stroke: #34d399 !important; stroke-opacity: 1 !important; }
+  .reset-hint {
+    position: absolute; top: 12px; right: 16px;
+    background: rgba(96,165,250,0.2);
+    color: #60a5fa;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    border: 1px solid rgba(96,165,250,0.4);
+    cursor: pointer;
+    opacity: 0; transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .reset-hint.show { opacity: 1; pointer-events: auto; }
+  .edge-label { fill: #94a3b8; font-size: 10px; font-weight: 600; pointer-events: none; }
+  .edge-label.hot { fill: #f87171; }
+
+  .particle { fill: #fbbf24; filter: drop-shadow(0 0 6px #fbbf24); }
+  .particle.hot { fill: #f87171; filter: drop-shadow(0 0 8px #f87171); }
+  .particle.warm { fill: #60a5fa; filter: drop-shadow(0 0 6px #60a5fa); }
+
+  .tooltip {
+    position: absolute;
+    background: rgba(15,20,45,0.95);
+    border: 1px solid rgba(255,255,255,0.2);
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 12px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+    max-width: 280px;
+    backdrop-filter: blur(10px);
+  }
+
+  .analysis-panel {
+    max-width: 1600px; margin: 20px auto 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 16px;
+  }
+  .insight-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 18px 22px;
+    border-left: 4px solid #60a5fa;
+  }
+  .insight-card.hot { border-left-color: #f87171; }
+  .insight-card.warn { border-left-color: #fbbf24; }
+  .insight-card h3 { font-size: 14px; color: #fbbf24; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .insight-card ul { list-style: none; }
+  .insight-card li { font-size: 13px; color: #cbd5e1; line-height: 1.8; padding-left: 14px; position: relative; }
+  .insight-card li::before { content: "▸"; position: absolute; left: 0; color: #60a5fa; }
+  .insight-card li strong { color: #fbbf24; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>💰 支付入金流量漏斗 · 动态可视化</h1>
+  <div class="meta">
+    <span>📊 数据来源：Dynatrace qlf23711</span>
+    <span>⏱ 统计窗口：2026-03-23 19:00 ~ 20:00 CST</span>
+    <span>📐 格式：total(tpm/m) = 1小时总请求数 (每分钟请求数)</span>
+  </div>
+</div>
+
+<div class="stats-bar">
+  <div class="stat-card">
+    <div class="label">入口流量</div>
+    <div class="value">540,831<span class="unit">/h</span></div>
+  </div>
+  <div class="stat-card">
+    <div class="label">入口 TPM</div>
+    <div class="value">9,014<span class="unit">/min</span></div>
+  </div>
+  <div class="stat-card">
+    <div class="label">最热服务</div>
+    <div class="value" style="font-size:16px">pcs-resource</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">resource TPM</div>
+    <div class="value">18,172<span class="unit">/min</span></div>
+  </div>
+  <div class="stat-card">
+    <div class="label">异步 Job 通道</div>
+    <div class="value">2,419<span class="unit">/min × 2</span></div>
+  </div>
+  <div class="stat-card">
+    <div class="label">PSP 回调 TPM</div>
+    <div class="value">622<span class="unit">/min</span></div>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="btn active" id="btn-play">⏸ 暂停动画</button>
+  <button class="btn" id="btn-speed">⚡ 切换速度</button>
+  <button class="btn" id="btn-hot">🔥 高亮热路径</button>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#f0b46a"></div>热点节点</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f87171"></div>热路径</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#60a5fa"></div>异步通道</div>
+  </div>
+</div>
+
+<div class="canvas-container">
+  <svg id="flow-svg" viewBox="0 0 1540 1640" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <marker id="arrow" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+        <polygon points="0,0 9,3 0,6" fill="#94a3b8" />
+      </marker>
+      <marker id="arrow-hot" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+        <polygon points="0,0 9,3 0,6" fill="#f87171" />
+      </marker>
+      <linearGradient id="grad-node" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stop-color="#4c5d8a" stop-opacity="1"/>
+        <stop offset="100%" stop-color="#2f3a63" stop-opacity="1"/>
+      </linearGradient>
+      <linearGradient id="grad-hot" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stop-color="#5a6ba0" stop-opacity="1"/>
+        <stop offset="100%" stop-color="#384577" stop-opacity="1"/>
+      </linearGradient>
+    </defs>
+
+    <!-- 阶段一 -->
+    <rect class="phase-bg" x="20" y="20" width="1500" height="440" />
+    <text class="phase-label" x="40" y="50">阶段一 · 用户端入金流程（S1~S3）</text>
+
+    <!-- 阶段二 -->
+    <rect class="phase-bg" x="20" y="480" width="1500" height="320" />
+    <text class="phase-label" x="40" y="510">阶段二 · PCS 收银台流程（S4, S5）★扇出最密集</text>
+
+    <!-- 阶段三 -->
+    <rect class="phase-bg" x="20" y="820" width="980" height="280" />
+    <text class="phase-label" x="40" y="850">阶段三 · CPS 建单与到账回调（S6, S7）</text>
+
+    <!-- 阶段五 -->
+    <rect class="phase-bg" x="1020" y="820" width="500" height="280" />
+    <text class="phase-label" x="1040" y="850">阶段五 · Admin 审核</text>
+
+    <!-- 阶段四 -->
+    <rect class="phase-bg" x="20" y="1120" width="1500" height="320" />
+    <text class="phase-label" x="40" y="1150">阶段四 · 异步任务处理（S8）</text>
+
+    <!-- 关键观察区 -->
+    <rect class="phase-bg" x="20" y="1460" width="1500" height="170" />
+    <text class="phase-label" x="40" y="1490">🔑 关键观察区</text>
+
+    <g id="edges"></g>
+    <g id="nodes"></g>
+    <g id="particles"></g>
+  </svg>
+  <div class="tooltip" id="tooltip"></div>
+  <div class="reset-hint" id="reset-hint">✕ 清除选中（或点击空白区）</div>
+</div>
+
+<div class="analysis-panel">
+  <div class="insight-card hot">
+    <h3>🔥 热点分析</h3>
+    <ul>
+      <li><strong>pcs-resource</strong> TPM 高达 <strong>18,172/min</strong> —— 全链路最热，是 channel-provider（6,556/m）的 <strong>2.77 倍</strong></li>
+      <li><strong>pcs-cashier</strong> 扇出到 <strong>5 个下游</strong>（4 服务 + Redis），扇出比 ≈ <strong>5.7x</strong></li>
+      <li>PSP 回调 <strong>622/m</strong> 对应支付实际完成率（入口 9,014/m 的 6.9%）</li>
+    </ul>
+  </div>
+  <div class="insight-card warn">
+    <h3>⚠️ 容量风险</h3>
+    <ul>
+      <li>pcs-resource 是首要容量天花板 —— 大行情需按 <strong>3-5x</strong>（54K~90K/m）预备</li>
+      <li>PCS 扇出 5 路：任一下游抖动都会放大到收银台</li>
+      <li><strong>Redis</strong> 是共用基础设施，需单独评估连接数与 CPU</li>
+      <li>CPS 链路 <strong>pro → acqs → PSP</strong> 每一跳都有网络延迟</li>
+    </ul>
+  </div>
+  <div class="insight-card">
+    <h3>💡 治理建议</h3>
+    <ul>
+      <li>pcs-resource 必须**优先接入限流** + <strong>本地缓存</strong>（降低频次）</li>
+      <li>payment-open-service 双向承载（PSP回调 + Admin入口），<strong>需独立限流桶</strong></li>
+      <li>CPS 链路超时：严格 <strong>10s</strong>，特殊场景 <strong>30s</strong>，避免级联阻塞</li>
+      <li>Redis 建议引入 <strong>本地二级缓存</strong>（Caffeine）抗突刺</li>
+    </ul>
+  </div>
+  <div class="insight-card">
+    <h3>📊 容量推算</h3>
+    <ul>
+      <li>入口 <strong>9,014/m</strong> 是 gateway 的日常容量水位</li>
+      <li>pcs-resource <strong>18,172/m</strong> 为当前峰值，红线 <strong>30,000/m</strong></li>
+      <li>PSP 回调 <strong>622/m</strong> 需与支付成功率联动监控</li>
+      <li>建议入口 <strong>60% / 80% / 90%</strong> 分级告警，pcs-resource 单独配置阈值</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+// ====== 节点定义 ======
+const nodes = [
+  // ===== 阶段一 · 用户端入金流程 =====
+  { id: 'GW',  label: 'payment-gateway',        type: 'gw',   x: 130, y: 180, w: 180, h: 55, tpm: '9,014/m', total: '540,831', desc: '入口网关' },
+  { id: 'CS',  label: 'payment-client-service', type: 'core', x: 360, y: 180, w: 200, h: 55, tpm: '9,014/m', total: '540,831', desc: '用户端核心服务（同时承接 PSP 回调、PCS 回写）' },
+  { id: 'US1', label: 'hytech-user-service',    type: 'down', x: 360, y: 320, w: 200, h: 45, tpm: '100/m',   total: '5,975',   desc: '用户鉴权/信息查询' },
+  { id: 'SH',  label: 'share-internal-service', type: 'down', x: 360, y: 380, w: 200, h: 45, tpm: '90/m',    total: '5,374',   desc: '共享内部服务' },
+  { id: 'PCS', label: 'service-pcs-cashier',    type: 'core', x: 620, y: 180, w: 200, h: 55, tpm: '5,474/m', total: '328,458', desc: '出入金收银台 ★扇出 5 路', hot: true },
+
+  // ===== 阶段二 · PCS 收银台流程（5 个扇出下游） =====
+  // 按流量降序排列：PCR > CP > PCL > PCM > REDIS
+  { id: 'PCR', label: 'service-pcs-resource',   type: 'l2',   x: 80,   y: 620, w: 200, h: 55, tpm: '18,172/m', total: '1,090,294', desc: '🔥 全链路最热 · 资源查询服务', hot: true },
+  { id: 'CP',  label: 'service-channel-provider', type: 'l2', x: 360, y: 620, w: 220, h: 55, tpm: '6,556/m',  total: '393,356',   desc: '渠道提供方' },
+  { id: 'PCL', label: 'service-pcs-client',     type: 'l2',   x: 660,  y: 620, w: 200, h: 55, tpm: '3,426/m',  total: '205,534',   desc: 'PCS 客户端组件' },
+  { id: 'PCM', label: 'service-pcs-common',     type: 'l2',   x: 940,  y: 620, w: 200, h: 55, tpm: '1,878/m',  total: '112,675',   desc: 'PCS 公共服务（被 CP 与 PCS 双调）' },
+  { id: 'REDIS', label: 'Redis',                type: 'ext',  x: 1220, y: 620, w: 180, h: 55, desc: '缓存中间件' },
+
+  // ===== 阶段三 · CPS 建单与到账回调 =====
+  { id: 'CPS_PRO',  label: 'cps-pro_service',           type: 'l2', x: 80,  y: 920, w: 180, h: 50, desc: 'CPS Pro 建单服务' },
+  { id: 'CPS_ACQS', label: 'cps-acqs',                  type: 'l2', x: 300, y: 920, w: 180, h: 50, desc: 'CPS 收单服务' },
+  { id: 'PSP',      label: 'PSP 三方支付渠道',          type: 'ext', x: 520, y: 920, w: 180, h: 50, desc: '三方支付渠道（PSP）' },
+  { id: 'OS',       label: 'payment-open-service',      type: 'core', x: 770, y: 920, w: 200, h: 55, tpm: '622/m', total: '37,320', desc: '开放服务 · PSP 回调 + Admin 入口双用' },
+  { id: 'CPS_NOTIFY', label: 'service-cps-notification', type: 'l2', x: 80, y: 990, w: 220, h: 45, desc: 'CPS 通知服务' },
+
+  // ===== 阶段五 · Admin 审核 =====
+  { id: 'ADM',    label: 'excalibur au-admin',     type: 'gw',   x: 1070, y: 920, w: 180, h: 55, tpm: '622/m', total: '37,320', desc: 'Admin 审核入口' },
+  { id: 'ADM_OS', label: 'payment-open-service',   type: 'core', x: 1300, y: 920, w: 200, h: 55, tpm: '622/m', total: '37,320', desc: '开放服务（接收 Admin 审核）' },
+
+  // ===== 阶段四 · 异步任务处理 =====
+  { id: 'JOB',   label: 'payment-job-executor',  type: 'core', x: 80,   y: 1250, w: 220, h: 60, tpm: '2,419/m × 2', total: '145,117 × 2', desc: 'XXL-Job 异步任务枢纽（接收 CS+OS 两路）' },
+  { id: 'US4',   label: 'hytech-user-service',   type: 'down', x: 400,  y: 1220, w: 200, h: 45, tpm: '100/m', total: '5,975' },
+  { id: 'SH4',   label: 'share-internal-service', type: 'down', x: 400, y: 1280, w: 200, h: 45, tpm: '90/m',  total: '5,374' },
+  { id: 'MT4',   label: 'MT4 Server',            type: 'ext',  x: 680,  y: 1220, w: 180, h: 45, desc: '动账执行' },
+  { id: 'EM',    label: 'Email Service',         type: 'down', x: 680,  y: 1280, w: 180, h: 45 },
+  { id: 'STATS', label: '统计服务',              type: 'down', x: 940,  y: 1250, w: 180, h: 45 },
+
+  // ===== 关键观察区 =====
+  { id: 'KEY1', label: '★ 热点: pcs-resource 18,172/m（2.77x CP）', type: 'hot-note', x: 60, y: 1510, w: 340, h: 45 },
+  { id: 'KEY2', label: '★ 扇出: cashier → 5 个下游（含 Redis）', type: 'hot-note', x: 420, y: 1510, w: 340, h: 45 },
+  { id: 'KEY3', label: '★ OS 双向承载: PSP 回调 + Admin 入口', type: 'hot-note', x: 780, y: 1510, w: 340, h: 45 },
+  { id: 'KEY4', label: '★ 异步 Job × 2 通道: Kafka Lag 关键指标', type: 'hot-note', x: 1140, y: 1510, w: 340, h: 45 },
+  { id: 'KEY5', label: '★ CPS 链路（pro→acqs→PSP）每跳都有网络延迟，需端到端监控', type: 'hot-note', x: 60, y: 1575, w: 720, h: 45 },
+  { id: 'KEY6', label: '★ 大行情需按 3-5x 预备：入口 27K~45K/m，pcs-resource 54K~90K/m', type: 'hot-note', x: 800, y: 1575, w: 680, h: 45 },
+];
+
+// ====== 边定义 ======
+const edges = [
+  // 阶段一
+  { from: 'GW', to: 'CS',   label: '540,831 (9,014/m)', weight: 9014, hot: true },
+  { from: 'CS', to: 'US1',  label: '100/m',   weight: 100 },
+  { from: 'CS', to: 'SH',   label: '90/m',    weight: 90 },
+  { from: 'CS', to: 'PCS',  label: '328,458 (5,474/m)', weight: 5474, hot: true },
+
+  // 阶段二（PCS 扇出）
+  { from: 'PCS', to: 'PCR', label: '1,090,294 (18,172/m)', weight: 18172, hot: true },
+  { from: 'PCS', to: 'CP',  label: '393,356 (6,556/m)', weight: 6556, hot: true },
+  { from: 'PCS', to: 'PCL', label: '205,534 (3,426/m)', weight: 3426 },
+  { from: 'PCS', to: 'PCM', label: '112,675 (1,878/m)', weight: 1878 },
+  { from: 'PCS', to: 'REDIS', label: '', weight: 500 },
+  { from: 'CP',  to: 'PCM', label: '', weight: 800 },
+  { from: 'PCS', to: 'CS',  label: '回写', weight: 300, dashed: true, warm: true },
+
+  // 阶段三（CPS 链路 + 回调）
+  { from: 'CS',  to: 'CPS_PRO',  label: '', weight: 400 },
+  { from: 'CPS_PRO',  to: 'CPS_ACQS', label: '', weight: 400 },
+  { from: 'CPS_ACQS', to: 'PSP',      label: '', weight: 400 },
+  { from: 'PSP', to: 'OS',       label: '37,320 (622/m)', weight: 622, hot: true },
+  { from: 'OS',  to: 'CS',       label: '回调 622/m', weight: 622, warm: true, dashed: true },
+
+  // 阶段五（Admin 独立入口）
+  { from: 'ADM', to: 'ADM_OS',   label: '37,320 (622/m)', weight: 622 },
+
+  // 阶段四（Job 扇出）
+  { from: 'JOB', to: 'US4',      label: '100/m', weight: 100 },
+  { from: 'JOB', to: 'SH4',      label: '90/m',  weight: 90 },
+  { from: 'JOB', to: 'MT4',      label: '',      weight: 300 },
+  { from: 'JOB', to: 'EM',       label: '',      weight: 80 },
+  { from: 'JOB', to: 'STATS',    label: '',      weight: 100 },
+
+  // 跨阶段异步（虚线）
+  { from: 'CS', to: 'JOB', label: '2,419/m (异步)', weight: 2419, dashed: true, warm: true },
+  { from: 'OS', to: 'JOB', label: '2,419/m (异步)', weight: 2419, dashed: true, warm: true },
+];
+
+// ====== 渲染 ======
+const svg = document.getElementById('flow-svg');
+const nodesG = document.getElementById('nodes');
+const edgesG = document.getElementById('edges');
+const particlesG = document.getElementById('particles');
+const tooltip = document.getElementById('tooltip');
+
+function gradFor(type, hot) {
+  if (type === 'hot-note') return 'rgba(248,113,113,0.15)';
+  return hot ? 'url(#grad-hot)' : 'url(#grad-node)';
+}
+function strokeFor(type, hot) {
+  if (type === 'hot-note') return '#f87171';
+  return hot ? '#f0b46a' : '#7b8ab8';
+}
+
+const nodeMap = {};
+nodes.forEach(n => {
+  nodeMap[n.id] = n;
+  const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.setAttribute('data-id', n.id);
+
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rect.setAttribute('class', 'node-rect');
+  rect.setAttribute('x', n.x);
+  rect.setAttribute('y', n.y);
+  rect.setAttribute('width', n.w);
+  rect.setAttribute('height', n.h);
+  rect.setAttribute('rx', 10);
+  rect.setAttribute('fill', gradFor(n.type, n.hot));
+  rect.setAttribute('stroke', strokeFor(n.type, n.hot));
+  g.appendChild(rect);
+
+  if (n.type === 'hot-note') {
+    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    txt.setAttribute('class', 'node-label');
+    txt.setAttribute('x', n.x + n.w / 2);
+    txt.setAttribute('y', n.y + n.h / 2 + 5);
+    txt.setAttribute('fill', '#fca5a5');
+    txt.textContent = n.label;
+    g.appendChild(txt);
+  } else {
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('class', 'node-label');
+    label.setAttribute('x', n.x + n.w / 2);
+    label.setAttribute('y', n.y + 20);
+    label.textContent = n.label;
+    g.appendChild(label);
+
+    if (n.tpm) {
+      const stat = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      stat.setAttribute('class', 'node-stat');
+      stat.setAttribute('x', n.x + n.w / 2);
+      stat.setAttribute('y', n.y + 38);
+      stat.textContent = n.tpm;
+      g.appendChild(stat);
+    }
+    if (n.total) {
+      const sub = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      sub.setAttribute('class', 'node-substat');
+      sub.setAttribute('x', n.x + n.w / 2);
+      sub.setAttribute('y', n.y + (n.h > 55 ? 52 : 48));
+      sub.textContent = `Σ ${n.total}`;
+      g.appendChild(sub);
+    }
+  }
+
+  if (n.desc) {
+    g.addEventListener('mouseenter', () => {
+      tooltip.innerHTML = `<b>${n.label}</b><br>${n.desc}${n.tpm ? `<br>TPM: <span style="color:#fbbf24">${n.tpm}</span>` : ''}${n.total ? `<br>Total: ${n.total}` : ''}`;
+      tooltip.style.opacity = 1;
+    });
+    g.addEventListener('mousemove', e => {
+      const rect = svg.getBoundingClientRect();
+      tooltip.style.left = (e.clientX - rect.left + 15) + 'px';
+      tooltip.style.top = (e.clientY - rect.top + 15) + 'px';
+    });
+    g.addEventListener('mouseleave', () => { tooltip.style.opacity = 0; });
+  }
+
+  nodesG.appendChild(g);
+});
+
+// ====== 边路径（智能方向选择） ======
+function edgePath(from, to) {
+  const fromCx = from.x + from.w / 2, fromCy = from.y + from.h / 2;
+  const toCx = to.x + to.w / 2, toCy = to.y + to.h / 2;
+  const dx = toCx - fromCx, dy = toCy - fromCy;
+
+  let fx, fy, tx, ty, d;
+  if (Math.abs(dy) > Math.abs(dx) * 1.3) {
+    if (dy > 0) {
+      fx = fromCx; fy = from.y + from.h;
+      tx = toCx; ty = to.y;
+    } else {
+      fx = fromCx; fy = from.y;
+      tx = toCx; ty = to.y + to.h;
+    }
+    const midY = (fy + ty) / 2;
+    d = `M ${fx} ${fy} C ${fx} ${midY}, ${tx} ${midY}, ${tx} ${ty}`;
+  } else {
+    if (dx > 0) {
+      fx = from.x + from.w; fy = fromCy;
+      tx = to.x; ty = toCy;
+    } else {
+      fx = from.x; fy = fromCy;
+      tx = to.x + to.w; ty = toCy;
+    }
+    const midX = (fx + tx) / 2;
+    d = `M ${fx} ${fy} C ${midX} ${fy}, ${midX} ${ty}, ${tx} ${ty}`;
+  }
+  return { d, fx, fy, tx, ty };
+}
+
+const edgeData = [];
+edges.forEach((e, idx) => {
+  const from = nodeMap[e.from], to = nodeMap[e.to];
+  if (!from || !to) return;
+  const p = edgePath(from, to);
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', p.d);
+  path.setAttribute('class', 'edge');
+  path.setAttribute('id', `edge-${idx}`);
+  path.setAttribute('data-from', e.from);
+  path.setAttribute('data-to', e.to);
+  const strokeW = Math.max(0.6, Math.min(3, Math.log10(e.weight + 1) * 0.7));
+  path.setAttribute('stroke-width', strokeW);
+  path.setAttribute('stroke', e.hot ? '#f87171' : (e.warm ? '#60a5fa' : '#94a3b8'));
+  if (e.dashed) path.setAttribute('stroke-dasharray', '6,4');
+  path.setAttribute('marker-end', e.hot ? 'url(#arrow-hot)' : 'url(#arrow)');
+  edgesG.appendChild(path);
+
+  let lbl = null;
+  if (e.label) {
+    const midX = (p.fx + p.tx) / 2, midY = (p.fy + p.ty) / 2 - 6;
+    lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    lbl.setAttribute('class', 'edge-label' + (e.hot ? ' hot' : ''));
+    lbl.setAttribute('x', midX);
+    lbl.setAttribute('y', midY);
+    lbl.setAttribute('text-anchor', 'middle');
+    lbl.textContent = e.label;
+    edgesG.appendChild(lbl);
+  }
+
+  edgeData.push({ path, label: lbl, from: e.from, to: e.to, weight: e.weight, hot: e.hot, warm: e.warm, dashed: e.dashed, pathLen: path.getTotalLength() });
+});
+
+// ====== 上下游映射 ======
+const upstreamMap = {}, downstreamMap = {};
+edges.forEach(e => {
+  if (!nodeMap[e.from] || !nodeMap[e.to]) return;
+  (downstreamMap[e.from] = downstreamMap[e.from] || []).push(e.to);
+  (upstreamMap[e.to] = upstreamMap[e.to] || []).push(e.from);
+});
+function collectAncestors(id, set) {
+  (upstreamMap[id] || []).forEach(u => { if (!set.has(u)) { set.add(u); collectAncestors(u, set); } });
+}
+function collectDescendants(id, set) {
+  (downstreamMap[id] || []).forEach(d => { if (!set.has(d)) { set.add(d); collectDescendants(d, set); } });
+}
+
+// ====== 节点点击高亮上下游 ======
+let selectedId = null;
+const resetHint = document.getElementById('reset-hint');
+
+function highlightLineage(nodeId) {
+  selectedId = nodeId;
+  const ups = new Set(); collectAncestors(nodeId, ups);
+  const downs = new Set(); collectDescendants(nodeId, downs);
+  const relevant = new Set([nodeId, ...ups, ...downs]);
+
+  document.querySelectorAll('#nodes > g').forEach(g => {
+    const id = g.getAttribute('data-id');
+    g.classList.remove('highlight-node', 'upstream-node', 'downstream-node', 'dimmed');
+    if (id === nodeId) g.classList.add('highlight-node');
+    else if (ups.has(id)) g.classList.add('upstream-node');
+    else if (downs.has(id)) g.classList.add('downstream-node');
+    else if (id && id.startsWith('KEY')) { /* skip */ }
+    else g.classList.add('dimmed');
+  });
+
+  edgeData.forEach(ed => {
+    ed.path.classList.remove('upstream-edge', 'downstream-edge', 'dimmed');
+    if (ed.label) ed.label.classList.remove('dimmed');
+    if (ed.to === nodeId || (ups.has(ed.from) && ups.has(ed.to)) || (ups.has(ed.from) && ed.to === nodeId)) {
+      ed.path.classList.add('upstream-edge');
+    } else if (ed.from === nodeId || (downs.has(ed.to) && downs.has(ed.from)) || (downs.has(ed.to) && ed.from === nodeId)) {
+      ed.path.classList.add('downstream-edge');
+    } else {
+      ed.path.classList.add('dimmed');
+      if (ed.label) ed.label.classList.add('dimmed');
+    }
+  });
+
+  particles.forEach(p => {
+    p.el.style.opacity = p.edge.path.classList.contains('dimmed') ? 0.08 : 1;
+  });
+  resetHint.classList.add('show');
+}
+function resetHighlight() {
+  selectedId = null;
+  document.querySelectorAll('#nodes > g').forEach(g => {
+    g.classList.remove('highlight-node', 'upstream-node', 'downstream-node', 'dimmed');
+  });
+  edgeData.forEach(ed => {
+    ed.path.classList.remove('upstream-edge', 'downstream-edge', 'dimmed');
+    if (ed.label) ed.label.classList.remove('dimmed');
+  });
+  particles.forEach(p => { p.el.style.opacity = 1; });
+  resetHint.classList.remove('show');
+}
+
+document.querySelectorAll('#nodes > g').forEach(g => {
+  const id = g.getAttribute('data-id');
+  if (!id || id.startsWith('KEY')) return;
+  g.style.cursor = 'pointer';
+  g.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (selectedId === id) resetHighlight();
+    else highlightLineage(id);
+  });
+});
+svg.addEventListener('click', () => resetHighlight());
+resetHint.addEventListener('click', (e) => { e.stopPropagation(); resetHighlight(); });
+
+// ====== 粒子动画 ======
+let animRunning = true, speedMultiplier = 1, hotHighlight = false;
+const particles = [];
+edgeData.forEach(ed => {
+  const density = Math.min(6, Math.max(1, Math.log10(ed.weight + 1)));
+  const count = Math.ceil(density);
+  for (let i = 0; i < count; i++) {
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('r', ed.hot ? 2.8 : 2.2);
+    circle.setAttribute('class', 'particle' + (ed.hot ? ' hot' : (ed.warm ? ' warm' : '')));
+    particlesG.appendChild(circle);
+    particles.push({
+      el: circle,
+      edge: ed,
+      t: Math.random(),
+      speed: (0.002 + Math.min(0.01, ed.weight / 1500000)) * (ed.hot ? 1.5 : 1)
+    });
+  }
+});
+function tick() {
+  if (animRunning) {
+    particles.forEach(p => {
+      p.t += p.speed * speedMultiplier;
+      if (p.t > 1) p.t = 0;
+      const pt = p.edge.path.getPointAtLength(p.edge.pathLen * p.t);
+      p.el.setAttribute('cx', pt.x);
+      p.el.setAttribute('cy', pt.y);
+      if (hotHighlight && !p.edge.hot) p.el.style.opacity = 0.15;
+      else if (!p.edge.path.classList.contains('dimmed')) p.el.style.opacity = 1;
+    });
+  }
+  requestAnimationFrame(tick);
+}
+tick();
+
+document.getElementById('btn-play').addEventListener('click', e => {
+  animRunning = !animRunning;
+  e.target.textContent = animRunning ? '⏸ 暂停动画' : '▶ 播放动画';
+  e.target.classList.toggle('active', animRunning);
+});
+document.getElementById('btn-speed').addEventListener('click', e => {
+  speedMultiplier = speedMultiplier === 1 ? 3 : speedMultiplier === 3 ? 0.4 : 1;
+  e.target.textContent = `⚡ 速度 ${speedMultiplier}x`;
+});
+document.getElementById('btn-hot').addEventListener('click', e => {
+  hotHighlight = !hotHighlight;
+  e.target.classList.toggle('active', hotHighlight);
+  edgeData.forEach(ed => {
+    ed.path.style.opacity = (hotHighlight && !ed.hot) ? 0.15 : 1;
+  });
+});
+</script>
+
+</body>
+</html>
